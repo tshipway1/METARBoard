@@ -1,5 +1,109 @@
 'use strict';
 
+// Function to center on the saved home airport
+function centerOnHomeAirport() {
+    const home = localStorage.getItem("homeAirport");
+    if (!home || !airportNameKeymap.has(home)) return;
+
+    let apt = null;
+    airportFeatures.forEach((feature) => {
+        if (feature.get("ident") === home) {
+            apt = feature;
+        }
+    });
+
+    if (apt) {
+        const coords = apt.getGeometry().getCoordinates();
+        map.getView().setCenter(coords);
+        map.getView().setZoom(9);
+        // Automatically check the METARs checkbox if it exists
+        const metarsCheckbox = document.querySelector('input[type="checkbox"][title="Metars"]');
+        if (metarsCheckbox) {
+            metarsCheckbox.checked = true;
+            metarVectorLayer.setVisible(true);
+        }
+
+        // Automatically check the Animated Weather checkbox if it exists
+        const animatedWxCheckbox = document.querySelector('input[type="checkbox"][title="Animated Weather"]');
+        if (animatedWxCheckbox) {
+            animatedWxCheckbox.checked = true;
+            animatedWxTileLayer.setVisible(true);
+        }
+        // Enable METARs layer
+        if (metarVectorLayer) {
+            metarVectorLayer.setVisible(true);
+            const metarCheckbox = document.querySelector('input[type="checkbox"][title="Metars"]');
+            if (metarCheckbox) metarCheckbox.checked = true;
+        }
+        // Enable animated weather layer
+        if (animatedWxTileLayer) {
+            animatedWxTileLayer.setVisible(true);
+            const wxCheckbox = document.querySelector('input[type="checkbox"][title="Animated Weather"]');
+            if (wxCheckbox) wxCheckbox.checked = true;
+        }
+        
+        // Enable sectional charts for the home region and nearby
+        const lat = apt.getGeometry().getCoordinates()[1];
+        const lon = apt.getGeometry().getCoordinates()[0];
+        const coord = ol.proj.toLonLat([lon, lat]);
+
+        // Define a search buffer of ~2 degrees lat/lon (~200km)
+        const buffer = 2.0;
+        const minLon = coord[0] - buffer;
+        const maxLon = coord[0] + buffer;
+        const minLat = coord[1] - buffer;
+        const maxLat = coord[1] + buffer;
+
+        const bufferedExtent = ol.proj.transformExtent(
+            [minLon, minLat, maxLon, maxLat],
+            'EPSG:4326',
+            'EPSG:3857'
+        );
+
+        map.getLayers().forEach(layer => {
+            if (layer.get("title") && layer.get("title").toLowerCase().includes("chart")) {
+                const extent = layer.getExtent();
+                const title = layer.get("title").toLowerCase();
+                if (ol.extent.intersects(extent, bufferedExtent)) {
+                    layer.setVisible(true);
+                } else if (title.includes("sectional") || title.includes("chart")) {
+                    layer.setVisible(false);
+                }
+            }
+        });
+        setTimeout(() => {
+            const metarFeature = metarFeatures.getArray().find(f => {
+                const metar = f.get("metar");
+                const featureId = f.getId();
+                return metar && (metar.station_id?.toUpperCase() === home || featureId?.toUpperCase() === home);
+            });
+
+            if (metarFeature && popupoverlay) {
+                const metar = metarFeature.get("metar");
+                const rawmetar = metar?.raw_text;
+                if (rawmetar) {
+                    displayMetarPopup(metarFeature);
+                    const popupEl = popupoverlay.getElement();
+                    popupEl.style.position = 'fixed';
+                    popupEl.style.bottom = '10px';
+                    popupEl.style.right = '10px';
+                    popupEl.style.top = 'unset';
+                    popupEl.style.left = 'unset';
+                    popupEl.style.display = 'block';
+                    popupEl.style.zIndex = '2000';
+                } else {
+                    console.log("METAR data missing raw_text for", home);
+                }
+            } else {
+                console.log("No matching METAR found for home airport:", home);
+                console.log("Home:", home);
+                console.log("All METAR IDs:", metarFeatures.getArray().map(f => f.getId()));
+            }
+        }, 2000);
+
+    }
+}
+
 
  /**
  * Construct all of the application urls 
@@ -84,6 +188,14 @@ let lastcriteria = "allregions";
  * Map objects used for various keyname lookups
  */
 let airportNameKeymap = new Map();
+fetch("us_airports.json")
+  .then(res => res.json())
+  .then(data => {
+      return data;
+  })
+  .then(data => {
+      processAirports({ airports: data });
+  });
 let tafFieldKeymap = new Map();
 let metarFieldKeymap = new Map();
 let weatherAcronymKeymap = new Map();
@@ -189,6 +301,40 @@ let regionmap = new Map();
     }
 });
 
+// Floating clock overlay
+const clockContainer = document.createElement("div");
+clockContainer.style.position = "absolute";
+clockContainer.style.top = "10px";
+clockContainer.style.right = "10px";
+clockContainer.style.backgroundColor = "rgba(0,0,0,0.5)";
+clockContainer.style.color = "white";
+clockContainer.style.padding = "6px 10px";
+clockContainer.style.borderRadius = "5px";
+clockContainer.style.fontFamily = "monospace";
+clockContainer.style.zIndex = "1000";
+clockContainer.style.fontSize = "20px";
+clockContainer.id = "clockOverlay";
+document.body.appendChild(clockContainer);
+
+function updateClockOverlay() {
+    const now = new Date();
+
+    // Format local time using 24-hour format
+    const localDate = now.toLocaleDateString('en-CA'); // YYYY-MM-DD
+    const localTime = now.toLocaleTimeString('en-GB'); // 24-hour time
+    const formattedLocal = `${localDate} ${localTime}`;
+
+    // Format UTC time
+    const utcDate = now.toISOString().split("T")[0];
+    const utcTime = now.toISOString().split("T")[1].split(".")[0]; // 24-hour format
+    const formattedUtc = `${utcDate} ${utcTime}`;
+
+    clockContainer.innerHTML = `Local: ${formattedLocal}<br>Zulu: ${formattedUtc}`;
+}
+
+setInterval(updateClockOverlay, 1000);
+updateClockOverlay();
+
 /**
  * Get the json file containing the metadata from all 
  * available mbtiles databases on the server
@@ -268,11 +414,15 @@ $.get({
             let payload = JSON.parse(message.payload);
 
             switch (message.type) {
-                case MessageTypes.airports.type:
-                    processAirports(payload);
-                    break;
+            // case MessageTypes.airports.type:
+            //     processAirports(payload);
+            //     break;
                 case MessageTypes.metars.type:
                     processMetars(payload);
+                    const savedHome = localStorage.getItem("homeAirport");
+                    if (savedHome && airportNameKeymap.has(savedHome)) {
+                        centerOnHomeAirport();
+                    }
                     break;
                 case MessageTypes.tafs.type:
                     processTafs(payload);
@@ -348,7 +498,7 @@ function addTrafficItem(jsondata) {
  */
 let ifrMarker = new ol.style.Icon({
     crossOrigin: 'anonymous',
-    src: `${URL_SERVER}/img/ifr.png`,
+    src: `${URL_SERVER}/img/ifr_metar_wind.svg`,
     size: [55, 55],
     offset: [0, 0],
     opacity: 1,
@@ -357,7 +507,7 @@ let ifrMarker = new ol.style.Icon({
 /*--------------------------------------*/
 let lifrMarker = new ol.style.Icon({
     crossOrigin: 'anonymous',
-    src: `${URL_SERVER}/img/lifr.png`,
+    src: `${URL_SERVER}/img/lifr_metar_wind.svg`,
     size: [55, 55],
     offset: [0, 0],
     opacity: 1,
@@ -366,7 +516,7 @@ let lifrMarker = new ol.style.Icon({
 /*--------------------------------------*/
 let mvfrMarker = new ol.style.Icon({
     crossOrigin: 'anonymous',
-    src: `${URL_SERVER}/img/mvfr.png`,
+    src: `${URL_SERVER}/img/mvfr_metar_wind.svg`,
     size: [55, 55],
     offset: [0, 0],
     opacity: 1,
@@ -375,7 +525,7 @@ let mvfrMarker = new ol.style.Icon({
 /*--------------------------------------*/
 let vfrMarker = new ol.style.Icon({
     crossOrigin: 'anonymous',
-    src: `${URL_SERVER}/img/vfr.png`,
+    src: `${URL_SERVER}/img/vfr_metar_wind.svg`,
     size: [55, 55],
     offset: [0, 0],
     opacity: 1,
@@ -488,6 +638,12 @@ function processAirports(jsonobj) {
             airportNameKeymap.set(airport.ident, airport.name);
             airportFeature.changed();
         }
+ 
+        const savedHome = localStorage.getItem("homeAirport");
+        if (savedHome && airportNameKeymap.has(savedHome)) {
+            document.getElementById("homeIcao").value = savedHome;
+            centerOnHomeAirport();
+        }
 
         /**
          * This is for the region select dropdown list
@@ -526,6 +682,31 @@ function processAirports(jsonobj) {
 regionselect.addEventListener('change', (event) => {
     lastcriteria = event.target.value;
     selectFeaturesByCriteria();
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+    const homeInput = document.getElementById("homeIcao");
+    const setHomeBtn = document.getElementById("setHomeBtn");
+
+    if (homeInput && setHomeBtn) {
+        const savedHome = localStorage.getItem("homeAirport");
+        if (savedHome) {
+            homeInput.value = savedHome;
+        }
+
+        setHomeBtn.addEventListener("click", () => {
+            const rawInput = homeInput.value || "";
+            const icao = rawInput.trim().toUpperCase();
+            if (!icao || !airportNameKeymap.has(icao)) {
+                alert("Airport not found.");
+                return;
+            }
+            localStorage.setItem("homeAirport", icao);
+            centerOnHomeAirport();
+        });
+    } else {
+        console.error("Missing home input or button elements.");
+    }
 });
 
 /**
@@ -644,6 +825,7 @@ const map = new ol.Map({
     overlays: [popupoverlay]
 });
 
+
 /**
  * Positioning of the ownship image feature
  */
@@ -689,7 +871,8 @@ map.on('click', (evt) => {
             hasfeature = true;
             let datatype = feature.get("datatype");
             if (datatype === "metar") {
-                displayMetarPopup(feature);
+                // Disable METAR click popup
+                return;
             }
             else if (datatype === "taf"){
                 displayTafPopup(feature);
@@ -708,9 +891,9 @@ map.on('click', (evt) => {
             popupoverlay.setPosition(coordinate);
         }
     });
-    if (!hasfeature) {
-        closePopup();
-    }
+    // if (!hasfeature) {
+    //     closePopup();
+    // }
 });
 
 /**
@@ -770,23 +953,30 @@ map.on('click', (evt) => {
     }
     if (ident != "undefined") {
         let name = getFormattedAirportName(ident);
-        let html = `<div id="#featurepopup"><pre><code><p>`
-        html +=    `${css}${name}\n${ident} - ${cat}</label><p></p>`;
-        html +=   (time != "" && time != "undefined") ? `Time:&nbsp<b>${time}</b><br/>` : "";
-        html +=   (temp != "" && temp != "undefined") ? `Temp:&nbsp<b>${tempC} °C</b> (${temp})<br/>` : "";
-        html +=   (dewp != "" && dewp != "undefined") ?`Dewpoint:&nbsp<b>${dewpC} °C</b> (${dewp})<br/>` : "";
-        html += (windir != "" && windir != "undefined") ? `Wind Direction:&nbsp<b>${windir}°</b><br/>` : "";
-        html += (winspd != "" && winspd != "undefined") ? `Wind Speed:&nbsp<b>${winspd}&nbspkt</b><br/>` : "";
-        html += (wingst != "" && wingst != "undefined") ? `Wind Gust:&nbsp<b>${wingst}&nbspkt</b><br/>` : "";
-        html +=  (altim != "" && altim != "undefined") ? `Altimeter:&nbsp<b>${altim}&nbsphg</b><br/>` : "";
-        html +=    (vis != "" && vis != "undefined") ? `Horizontal Visibility:&nbsp<b>${vis}</b><br/>` : "";
-        html += (wxcode != "" && wxcode != "undefined") ? `Weather:&nbsp<b>${wxcode}</b><br/>`: "";
-        html += (skyconditions != undefined && skyconditions != "") ? `${skyconditions}` : "";
-        html += (icingconditions != undefined && icingconditions != "") ? `${icingconditions}` : "";
-        html += `</p></code></pre><span class="windsvg">${svg}</span>`;
-        html += `<textarea class="rawdata">${rawmetar}</textarea><br />`; 
-        html += `<p><button class="ol-popup-closer" onclick="closePopup()">close</button></p></div>`;
-        popupcontent.innerHTML = html;  
+        let html = `
+    <div class="metar-header">${name}<br>${ident} - <span class="metar-category ${cat.toLowerCase()}">${cat}</span></div>
+    <table class="metar-table">
+      <tr><td>Time:</td><td>${time}</td></tr>
+      <tr><td>Temp:</td><td>${tempC} °C (${temp})</td></tr>
+      <tr><td>Dewpoint:</td><td>${dewpC} °C (${dewp})</td></tr>
+      <tr><td>Wind:</td><td>${windir}° @ ${winspd} kt</td></tr>
+      <tr><td>Altimeter:</td><td>${altim} inHg</td></tr>
+      <tr><td>Visibility:</td><td>${vis}</td></tr>
+      <tr><td>Sky cover:</td><td>${skyconditions || ""}</td></tr>
+    </table>
+    <div class="wind-graphic">${svg}</div>
+    <textarea class="rawdata">${rawmetar}</textarea>
+  `;
+        const existingBox = document.getElementById("homeMetarBox");
+        if (existingBox) {
+            existingBox.innerHTML = html;
+        } else {
+            const box = document.createElement("div");
+            box.id = "homeMetarBox";
+            box.className = "static-metar-popup";
+            box.innerHTML = html;
+            document.body.appendChild(box);
+        }
     }
 }
 
@@ -1278,23 +1468,39 @@ function processTraffic(jsondata) {
                 }
                 catch { }
                   
-                let metarmarker = new ol.style.Icon({
-                    crossOrigin: "anonymous",
-                    src: `data:image/svg+xml;utf8,${escape(svg2)}`,
-                    offset: [0,0],
-                    opacity: 1,
-                    scale: scaleSize
-                });
                 let metarFeature = new ol.Feature({
                     metar: metar,
                     datatype: "metar",
                     geometry: new ol.geom.Point(ol.proj.fromLonLat([metar.longitude, metar.latitude])),
                     svgimage: svg 
                 });
-                metarFeature.setStyle(new ol.style.Style({
-                    image: metarmarker
-                }));
-                metarMarkers.push(metarmarker);
+                let cat = metar.flight_category;
+                let styleColor;
+                switch (cat) {
+                    case "VFR":
+                        styleColor = "rgba(9, 236, 74, 0.9)"; 
+                        break;
+                    case "MVFR":
+                        styleColor = "rgba(7, 99, 247, 0.9)";
+                        break;
+                    case "IFR":
+                        styleColor = "rgba(255, 0, 0, 0.9)";
+                        break;
+                    case "LIFR":
+                        styleColor = "rgba(255, 0, 255, 0.9)";
+                        break;
+                    default:
+                        styleColor = "rgba(102, 204, 255, 0.9)";
+                        break;
+                }
+                const markerStyle = new ol.style.Style({
+                    image: new ol.style.Circle({
+                        radius: 10,
+                        fill: new ol.style.Fill({ color: styleColor }),
+                        stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 })
+                    })
+                });
+                metarFeature.setStyle(markerStyle);
                 metarFeature.setId(metar.station_id);
                 metarFeatures.push(metarFeature);
                 metarFeature.changed();
@@ -1303,6 +1509,38 @@ function processTraffic(jsondata) {
         catch(error) {
             console.log(error.message);
         }
+                // After all METARs processed, show home METAR dialog (popup position not reset)
+        setTimeout(() => {
+            const savedHome = localStorage.getItem("homeAirport");
+            if (savedHome && airportNameKeymap.has(savedHome)) {
+                const metarFeature = metarFeatures.getArray().find(f => {
+                    const metar = f.get("metar");
+                    const featureId = f.getId();
+                    return metar && (metar.station_id?.toUpperCase() === savedHome || featureId?.toUpperCase() === savedHome);
+                });
+
+                if (metarFeature && popupoverlay) {
+                    const metar = metarFeature.get("metar");
+                    const rawmetar = metar?.raw_text;
+                    if (rawmetar) {
+                        displayMetarPopup(metarFeature);
+                        const popupEl = popupoverlay.getElement();
+                        popupEl.style.position = 'fixed';
+                        popupEl.style.bottom = '10px';
+                        popupEl.style.right = '10px';
+                        popupEl.style.top = 'unset';
+                        popupEl.style.left = 'unset';
+                        popupEl.style.display = 'block';
+                        popupEl.style.zIndex = '2000';
+                    } else {
+                        console.log("Home METAR missing raw_text:", savedHome);
+                    }
+                } else {
+                    console.log("No matching METAR found for home airport:", savedHome);
+                    console.log("Available METAR features:", metarFeatures.getArray().map(f => f.getId()));
+                }
+            }
+        }, 1000);
     }
 }
 
@@ -1403,40 +1641,40 @@ function getScaleSize() {
     let scale = 1;
     switch(true) {
         case currentZoom >= 0 && currentZoom < 1:
-            scale = .05;
-            break;
-        case currentZoom >= 1 && currentZoom < 2:
-            scale = .075;
-            break;
-        case currentZoom >=2 && currentZoom < 3:
             scale = .10;
             break;
-        case currentZoom >= 3 && currentZoom < 4:
+        case currentZoom >= 1 && currentZoom < 2:
             scale = .15;
             break;
+        case currentZoom >= 2 && currentZoom < 3:
+            scale = .20;
+            break;
+        case currentZoom >= 3 && currentZoom < 4:
+            scale = .25;
+            break;
         case currentZoom >= 4 && currentZoom < 5:
-            scale = .275;
+            scale = .35;
             break;
         case currentZoom >= 5 && currentZoom < 6:
-            scale = .40;
+            scale = .45;
             break;
         case currentZoom >= 6 && currentZoom < 7:
-            scale = .60;
+            scale = .55;
             break;
         case currentZoom >= 7 && currentZoom < 8:
-            scale = .80;
+            scale = .65;
             break;
         case currentZoom >= 8 && currentZoom < 9:
-            scale = 1;
+            scale = .75;
             break;
         case currentZoom >= 9 && currentZoom < 10:
-            scale = 1.2;
+            scale = .90;
             break;
         case currentZoom >= 10 && currentZoom < 11:
-            scale = 1.4;
+            scale = 1.1;
             break;
         case currentZoom >= 11:
-            scale = 1.6;
+            scale = 1.3;
             break;
     }
     return scale;
@@ -1535,7 +1773,7 @@ if (settings.useOSMonlinemap) {
         title: "Open Street Maps",
         type: "overlay",
         source: new ol.source.OSM(),
-        visible: true,
+        visible: false,
         extent: extent //,
         //zIndex: 8
     });
@@ -1597,7 +1835,7 @@ const layerSwitcher = new LayerSwitcher({
     tipLabel: 'Layers', 
     groupSelectStyle: 'children'
 });
-map.addControl(layerSwitcher);
+// map.addControl(layerSwitcher);
 
 airportVectorLayer.on('change:visible', () => {
     let visible = airportVectorLayer.get('visible');
@@ -1671,6 +1909,17 @@ const stopWeatherRadar = function () {
       animationId = null;
     }
 };
+
+// Update METARs and airport indicators every 5 minutes
+setInterval(() => {
+    if (wsServerOpen && wsServer) {
+        console.log("Requesting latest METARs...");
+        wsServer.send(JSON.stringify({
+            type: MessageTypes.metars.type,
+            payload: "{}"
+        }));
+    }
+}, 5 * 60 * 1000); // every 5 minutes
 
 /**
  * Start the weather radar animation
