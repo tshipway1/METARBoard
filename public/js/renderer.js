@@ -316,6 +316,7 @@ clockContainer.style.fontSize = "20px";
 clockContainer.id = "clockOverlay";
 document.body.appendChild(clockContainer);
 
+
 function updateClockOverlay() {
     const now = new Date();
 
@@ -3516,3 +3517,72 @@ function fetchOpenSkyTraffic() {
   // Call every 15 seconds
   setInterval(fetchOpenSkyTraffic, 15000);
   fetchOpenSkyTraffic();
+
+// Create play/pause buttons for ATC audio
+const audioControls = document.createElement("div");
+audioControls.style.position = "fixed";
+audioControls.style.bottom = "20px";
+audioControls.style.left = "20px";
+audioControls.style.backgroundColor = "rgba(0,0,0,0.7)";
+audioControls.style.color = "white";
+audioControls.style.padding = "6px 10px";
+audioControls.style.borderRadius = "5px";
+audioControls.style.fontFamily = "sans-serif";
+audioControls.style.zIndex = "1000";
+
+const playButton = document.createElement("button");
+playButton.textContent = "Play ATC";
+playButton.onclick = () => {
+    if (audioElement.paused) {
+        audioElement.play().then(() => {
+            atcStatus.textContent = "Status: Playing";
+        }).catch(err => {
+            console.error("Audio play failed:", err);
+            atcStatus.textContent = "Status: Error";
+        });
+    }
+};
+
+const pauseButton = document.createElement("button");
+pauseButton.textContent = "Pause ATC";
+pauseButton.onclick = () => {
+    audioElement.pause();
+    atcStatus.textContent = "ATC Status: Paused";
+};
+
+atcControlContainer.appendChild(playButton);
+atcControlContainer.appendChild(pauseButton);
+
+const statusText = document.createElement("span");
+statusText.id = "atcStatus";
+statusText.style.marginLeft = "10px";
+statusText.style.fontWeight = "bold";
+statusText.textContent = "Status: Paused";
+audioControls.appendChild(statusText);
+
+document.body.appendChild(audioControls);
+
+// Setup the audio stream remains unchanged
+const atcAudio = new Audio("https://d.liveatc.net/kfdk2");
+atcAudio.loop = true;
+atcAudio.volume = 0.6;
+
+playBtn.addEventListener("click", () => {
+    atcAudio.play().then(() => {
+      statusText.textContent = "Status: Playing";
+    }).catch(err => {
+      console.warn("Play failed:", err);
+    });
+});
+
+pauseBtn.addEventListener("click", () => {
+    atcAudio.pause();
+    statusText.textContent = "Status: Paused";
+});
+
+// If browser blocks autoplay, allow retry on click
+document.addEventListener("click", () => {
+  if (atcAudio.paused) {
+    atcAudio.play().catch(err => console.warn("ATC playback blocked:", err));
+  }
+});
