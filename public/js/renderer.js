@@ -1,5 +1,7 @@
 'use strict';
 
+const OPEN_SKY_API_URL = "https://opensky-network.org/api/states/all";
+
 // Function to center on the saved home airport
 function centerOnHomeAirport() {
     const home = localStorage.getItem("homeAirport");
@@ -95,9 +97,7 @@ function centerOnHomeAirport() {
                     console.log("METAR data missing raw_text for", home);
                 }
             } else {
-                console.log("No matching METAR found for home airport:", home);
-                console.log("Home:", home);
-                console.log("All METAR IDs:", metarFeatures.getArray().map(f => f.getId()));
+                
             }
         }, 2000);
 
@@ -868,25 +868,22 @@ map.on('click', (evt) => {
     
     map.forEachFeatureAtPixel(evt.pixel, (feature) => {
         if (feature) {
-            hasfeature = true;
             let datatype = feature.get("datatype");
+    
+            if (datatype === "traffic") {
+                return; // prevent any traffic info from showing
+            }
+    
             if (datatype === "metar") {
-                // Disable METAR click popup
                 return;
-            }
-            else if (datatype === "taf"){
+            } else if (datatype === "taf") {
                 displayTafPopup(feature);
-            }
-            else if (datatype === "pirep") {
+            } else if (datatype === "pirep") {
                 displayPirepPopup(feature);
-            }
-            else if (datatype === "airport") { // simple airport marker
+            } else if (datatype === "airport") {
                 displayAirportPopup(feature);
             }
-            else if (datatype === "traffic") {
-                //BAMHERE
-                displayTrafficPopup(feature);
-            }
+    
             let coordinate = evt.coordinate;
             popupoverlay.setPosition(coordinate);
         }
@@ -1383,68 +1380,39 @@ function displayAirportPopup(feature) {
  * @param {*} feature: the traffic the user clicked on 
  */
 function displayTrafficPopup(feature) {
-    let jsondata = feature.get("jsondata");
-
-    let name = jsondata.Tail; //getFormattedAirportName(ident)
-    let html = `<div id="#featurepopup"><pre><code><p>`;
-        html += `<label>${jsondata.Reg}:alt=${jsondata.Alt},course=${jsondata.Track}@${jsondata.Speed}kt</label><p></p>`;
-        html += `</p></code></pre></div>`;
-        html += `<p><button class="ol-airport-closer" onclick="closePopup()">close</button></p>`;
-    popupcontent.innerHTML = html; 
+    return; // prevent label/popup generation
 }
 
-/**
- * Draw any traffic on the map
- */
 function processTraffic(jsondata) {
-    /*-----------------------------------------------------------------------------------------    
-                                 Traffic JSON sample 
-    -------------------------------------------------------------------------------------------
-    {"Icao_addr":11316589,"Reg":"N916EV","Tail":"N916EV","Emitter_category":0,
-    "OnGround":false,"Addr_type":0,"TargetType":0,"SignalLevel":-28.00244822746525,
-    "Squawk":0,"Position_valid":false,"Lat":0,"Lng":0,"Alt":5550,"GnssDiffFromBaroAlt":0,
-    "AltIsGNSS":false,"NIC":0,"NACp":0,"Track":0,"Speed":0,"Speed_valid":false,"Vvel":0,
-    "Timestamp":"2019-03-12T13:32:30.563Z","PriorityStatus":0,"Age":18.2,"AgeLastAlt":1.83,
-    "Last_seen":"0001-01-01T00:39:27.49Z","Last_alt":"0001-01-01T00:39:43.86Z",
-    "Last_GnssDiff":"0001-01-01T00:00:00Z","Last_GnssDiffAlt":0,"Last_speed":"0001-01-01T00:00:00Z",
-    "Last_source":1,"ExtrapolatedPosition":false,"BearingDist_valid":true,
-    "Bearing":92.7782277589171,"Distance":9.616803034808295e+06}
-    --------------------------------------------------------------------------------------------*/
-    
-    console.context().log(jsondata);
+    try {
+        trafficFeatures.clear();
 
-    trafficFeatures.clear();
-    for (let [key, item] of trafficMap) {
-        let scalesz = getScaleSize();
-        let geom = new ol.geom.Point(ol.proj.fromLonLat([item.Lng, item.Lat]));
-        
-        // convert Track degrees to radians
-        let tradians = item.Track * 0.0174533;
+        for (let [key, item] of trafficMap) {
+            if (!item || !item.Lat || !item.Lng) continue;
 
-        let trafficmarker = new ol.style.Icon({
-            crossOrigin: "anonymous",
-            src: `${URL_SERVER}/img/${settings.trafficimage}`,
-            offset: [0,0],
-            opacity: 1,
-            scale: .08,
-            rotation: tradians  
-        });
-        
-        let trafficFeature = new ol.Feature({
-            ident: key,
-            jsondata: item,
-            datatype: "traffic",
-            geometry: geom
-        });
+            const trafficFeature = new ol.Feature({
+                geometry: new ol.geom.Point(ol.proj.fromLonLat([item.Lng, item.Lat])),
+                datatype: "traffic"
+            });
 
-        trafficFeature.setStyle(new ol.style.Style({
-            image: trafficmarker
-        }));
-        
-        //trafficmarker.style.transform = "rotate(" + item.Track + "deg)";
-        trafficFeature.setId(key);
-        trafficFeatures.push(trafficFeature);
-        trafficFeature.changed();
+            const tradians = (item.Track || 0) * Math.PI / 180;
+
+            trafficFeature.setStyle(new ol.style.Style({
+                image: new ol.style.Icon({
+                    src: `${URL_SERVER}/img/airplane_white.svg`,
+                    crossOrigin: 'anonymous',
+                    scale: 0.07,
+                    rotation: tradians
+                })
+            }));
+
+            trafficFeatures.push(trafficFeature);
+        }
+
+        trafficVectorSource.clear();
+        trafficVectorSource.addFeatures(trafficFeatures.getArray());
+    } catch (err) {
+        console.error("Traffic render error:", err);
     }
 }
 
@@ -1755,18 +1723,18 @@ pirepVectorLayer = new ol.layer.Vector({
     zIndex: 14
 });
 
-if (settings.usestratux) {
-    trafficVectorSource = new ol.source.Vector({
-        features: trafficFeatures
-    });
-    trafficVectorLayer = new ol.layer.Vector({
-        title: "Traffic",
-        source: trafficVectorSource,
-        visible: false,
-        extent: extent,
-        zIndex: 14
-    });
-}
+trafficVectorSource = new ol.source.Vector({
+    features: trafficFeatures
+});
+trafficVectorLayer = new ol.layer.Vector({
+    title: "Traffic",
+    source: trafficVectorSource,
+    visible: false,
+    extent: extent,
+    zIndex: 14
+});
+map.addLayer(trafficVectorLayer);
+trafficVectorLayer.setVisible(true);
 
 if (settings.useOSMonlinemap) {
     const osmOnlineTileLayer = new ol.layer.Tile({
@@ -1788,9 +1756,9 @@ map.addLayer(airportVectorLayer);
 map.addLayer(metarVectorLayer); 
 map.addLayer(tafVectorLayer);
 map.addLayer(pirepVectorLayer);
-if (settings.usestratux) {
-    map.addLayer(trafficVectorLayer);
-}
+//if (settings.usestratux) {
+//    map.addLayer(trafficVectorLayer);
+//}
 map.addLayer(animatedWxTileLayer);
 
 dblist.reverse();
@@ -3498,3 +3466,53 @@ function cToF(celsius) {
     }
 }
 
+function fetchOpenSkyTraffic() {
+    const BBOX = [-125.0, 25.0, -66.0, 49.0]; // continental US
+    const url = `https://opensky-network.org/api/states/all?lamin=${BBOX[1]}&lomin=${BBOX[0]}&lamax=${BBOX[3]}&lomax=${BBOX[2]}`;
+  
+    fetch(url)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! Status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        const aircraft = data.states || [];
+  
+        trafficFeatures.clear();
+  
+        aircraft.forEach(state => {
+          const lon = state[5];
+          const lat = state[6];
+          const heading = state[10] || 0;
+  
+          if (lat && lon) {
+            const icon = new ol.style.Icon({
+              src: `${URL_SERVER}/img/airplane_white.svg`,
+              crossOrigin: 'anonymous',
+              scale: 0.07,
+              rotation: heading * Math.PI / 180,
+            });
+  
+            const feature = new ol.Feature({
+              geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat])),
+              datatype: "traffic"
+            });
+  
+            feature.setStyle(new ol.style.Style({ image: icon }));
+            trafficFeatures.push(feature);
+          }
+        });
+  
+        trafficVectorSource.clear();
+        trafficVectorSource.addFeatures(trafficFeatures.getArray());
+      })
+      .catch(err => {
+        console.error("OpenSky error:", err);
+      });
+  }
+  
+  // Call every 15 seconds
+  setInterval(fetchOpenSkyTraffic, 15000);
+  fetchOpenSkyTraffic();
