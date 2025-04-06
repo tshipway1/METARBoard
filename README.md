@@ -1,109 +1,79 @@
-## Aviation Chart Server displays FAA charts and OpenStreetMaps with animated weather, geo-referenced METARS, TAFS, Pireps, and much more - using node express web server with the OpenLayers map API.   
+# METARBoard (based on ChartServer)
 
-### See *https://github.com/n129bz/chartmaker* for a chart database processing utility that produces FAA charts including Sectional, Terminal, Helicopter, Caribbean, Grand Canyon, IFR Enroute-High, and IFR Enroute-Low mbtiles databases. Chartserver can display any mbtiles databases that are dropped into the /public/data folder.   
-### Chartserver menu options control the display of all geo-referenced markers, including all airports globally by US state or international country.   
-### Chartserver can poll Stratux GPS/AHRS data to plot ownship position and heading over a map, giving basic "moving map" functionality and can also optionally save ownship position data to a separate position history database at user-defined intervals.   
+METARBoard is a Node.js web app for serving FAA sectional charts, METARs, TAFs, and PIREPs for use in aviation displays. It includes support for .mbtiles chart databases, WebSocket delivery of weather data, and a rich frontend built for displaying current flight conditions.
 
-### Docker image: ***docker pull n129bz/chartserver:latest***
-**To run the image:**
-```
-docker run -it -p 8500:8500 -p 8550:8550 n129bz/chartserver:latest
-```
-**To run the image using an external chart folder:**
-```
-docker run -it -p 8500:8500 -p 8550:8550 -v /mylocalchartfolder:/chartserver/externaldata n129bz/chartserver:latest
+This project is based on [ChartServer by n129bz](https://github.com/n129bz/chartserver), with modifications for local deployments like Raspberry Pi-powered displays.
 
-(Where /mylocalchartfolder is a fully qualified path to your local chart tile db's)  
-```
-**At the container command prompt, enter:**
-```
-./runserver.sh
-```
-**To copy a mbtiles <yourchartname> database file to the container, ***the container must be running -*** press Ctrl-c to stop the web server, then open a second terminal and enter the docker cp command:**
-```
-docker cp <local path to your db file> <containerid>:/chartserver/public/data/
-after successful filecopy, in the terminal on the running container, enter ./runserver.sh to restart the web server 
+## Features
+
+- Serves sectional, TAC, IFR enroute, and helicopter charts from MBTiles
+- Displays weather overlays using:
+  - METARs (color-coded for VFR, MVFR, IFR, LIFR)
+  - TAFs and PIREPs
+- Works offline (once tiles are downloaded)
+- WebSocket-based real-time data delivery to browser clients
+- Position tracking and ownship history
+- Designed for large-screen wall displays
+
+## Setup
+
+### 1. Install dependencies
+
+Ensure you have Node.js and npm installed. Then run:
+
+```bash
+npm install
 ```
 
-**Normal Installation: See wiki at https://github.com/n129bz/chartserver/wiki** 
+### 2. Add chart databases
 
-###
-**User-editable values in settings.json:**
+Place `.mbtiles` files into the `charts/` folder. You can generate these using the companion project [chartmaker](https://github.com/n129bz/chartmaker).
+
+### 3. Run the app
+
+```bash
+node server.js
 ```
-{
-    "savepositionhistory": true,
-    "histintervalmsec": 15000,
-    "gpsintervalmsec": 1000,
-    "wxupdateintervalmsec": 480000,
-    "keepaliveintervalmsec": 30000,
-    "httpport": 8500,
-    "wsport": 8550,
-    "startupzoom": 8,
-    "useOSMonlinemap": true,
-    "debug": false,
-    "historyDb": "positionhistory.db",
-    "uselocaltime": true,
-    "distanceunit": "sm", 
-    "usestratux": false,
-    "stratuxip": "192.168.10.1",
-    "stratuxsituationws": "ws://[stratuxip]/situation",
-    "stratuxtrafficws": "ws://[stratuxip]/traffic",
-    "animatedwxurl": "https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0r-t.cgi",
-    "addswxurl": "https://aviationweather.gov/adds/dataserver_current/httpparam?dataSource=###&requestType=retrieve&format=xml&hoursBeforeNow=1.5&mostRecentForEachStation=true&stationString=",
-    "addsurrentxmlurl": "https://aviationweather.gov/adds/dataserver_current/current/###.cache.xml",
-    "showattribution": true,
-    "lockownshiptocenter": true,
-    "ownshipimage": "airplane.png",
-    "trafficimage": "red-yellow-traffic.png",
-    "usemetricunits": false,
-    "distanceunits": {
-        "kilometers": "km",
-        "nauticalmiles": "nm",
-        "statutemiles": "sm"
-    },
-    "messagetypes": {
-        "metars": {
-            "type": "metars",
-            "token": "###"
-        },
-        "tafs": {
-            "type": "tafs",
-            "token": "###"
-        },
-        "pireps": {
-            "type": "pireps",
-            "token": "###"
-        },
-        "airports": {
-            "type": "airports",
-            "token": ""
-        },
-        "keepalive": {
-            "type": "keepalive",
-            "token": "((💜))"
-        }
-    }
-}
+
+The server will start and listen on the port specified in `settings.json` (default: 8500). The WebSocket server runs on its own port (default: 8501).
+
+### 4. Access the frontend
+
+Open your browser and go to:
+
 ```
-**NOTE for Stratux integration**: The server requests position data via winsock connection to the Stratux API. Because the position history database is empty at first run of the app, the setting ***lockownshiptocenter*** is ***true*** by default. This will allow the application to generate and save some position data so that there will be "last known" longitude and latitude coordinates saved in the database. Once there is at least one position history record, change ***lockownshiptocenter*** to ***false*** so that you can pan around the map without it re-centering ownship to the center. This will give you basic real-time position of your aircraft on the map.      
+http://<your-device-ip>:8500
+```
 
-###
-**References:**   
-     
-https://github.com/n129bz/chartmaker   
-https://github.com/b3nn0/stratux   
-https://openlayers.org/     
+## Directory Structure
 
-###
-**Animated weather radar layer over the Sectional chart, ownship image displayed via Stratux integration**
-![ANIMWX](./images/SectWithWx.png)
-**OpenStreetMap with airport status colored markers and METAR popup**   
-![OSMWMETAR](./images/OsmWithMetars.png)
-**Enroute High IFR chart**   
-![enroutehigh](https://github.com/user-attachments/assets/caf0df83-44b2-47bb-9f9c-bab816fa5acc)
-**Multiple layers, layer switcher has OSM, Grand Canyon GA, Helicopter, and animated weather selected**
-![MULTI](./images/MultiLayer.png)
-**Caribbean chart with color-coded airport features, showing a METAR when hovering mouse over an airport**
-![CARIBMETAR](./images/CaribbeanWithMetars.png)
-**Sectional chart zoomed in**  
-![SECTCLOSE](./images/SectionalCloseup.png)
+- `server.js`: Main Node.js server file
+- `charts/`: Folder containing `.mbtiles` files
+- `public/`: Static web frontend
+- `settings.json`: Configuration (ports, map settings, etc.)
+- `airports.json`: ICAO airport data with lat/lon
+- `position_history.db`: Tracks user position over time
+
+## Configuration
+
+Edit `settings.json` to configure:
+
+- Chart directory (`externalcharts`)
+- Map settings (online vs offline base layer)
+- ADDS weather URLs
+- Update intervals
+- WebSocket and HTTP ports
+
+## Generating Charts
+
+Use the [chartmaker](https://github.com/n129bz/chartmaker) tool to create `.mbtiles` files from FAA GeoTIFF charts. It handles tiling, merging, and packaging automatically.
+
+## Credits
+
+- [chartserver](https://github.com/n129bz/chartserver) — original project
+- FAA VFR Sectional and Terminal charts (public domain)
+- ADDS weather feed
+
+## License
+
+This project is provided under the MIT license. FAA chart data is public domain. Use at your own risk; not for navigation.
