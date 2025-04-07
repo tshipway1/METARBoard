@@ -3,3 +3,4 @@
 **/xmldata/*.xml
 **/*.db
 **/*.mbtiles
+.DS_Store
