@@ -2,6 +2,10 @@
 
 const OPEN_SKY_API_URL = "https://opensky-network.org/api/states/all";
 
+if (!localStorage.getItem("homeAirport")) {
+    localStorage.setItem("homeAirport", "KFDK");
+}
+
 // Function to center on the saved home airport
 function centerOnHomeAirport() {
     const home = localStorage.getItem("homeAirport");
