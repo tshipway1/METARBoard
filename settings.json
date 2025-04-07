@@ -3,7 +3,7 @@
     "keepaliveintervalmsec": 30000,
     "httpport": 8500,
     "wsport": 8550,
-    "startupzoom": 5,
+    "startupzoom": 10,
     "useOSMonlinemap": true,
     "debug": false,
     "externalcharts": "",

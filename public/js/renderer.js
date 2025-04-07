@@ -17,7 +17,7 @@ function centerOnHomeAirport() {
     if (apt) {
         const coords = apt.getGeometry().getCoordinates();
         map.getView().setCenter(coords);
-        map.getView().setZoom(9);
+        map.getView().setZoom(settings.startupzoom || 10);
         // Automatically check the METARs checkbox if it exists
         const metarsCheckbox = document.querySelector('input[type="checkbox"][title="Metars"]');
         if (metarsCheckbox) {
@@ -1901,19 +1901,17 @@ const playWeatherRadar = function () {
 /**
  * Animation start button element and event listener
  */
-const startButton = document.getElementById('play');
-startButton.addEventListener('click', playWeatherRadar, false);
+const playButton = document.getElementById('play');
+playButton.onclick = () => {
+    playWeatherRadar();
+};
 
 /**
  * Animation stop button element and event listener
  */
 const stopButton = document.getElementById('pause');
 stopButton.addEventListener('click', stopWeatherRadar, false);
-
-/**    fieldvalues.set(key, `<td>${subobj}</td>`);
             
- * Sets an initial time in the timeclock element
- */
 updateInfo();
 
 /**
@@ -3520,69 +3518,53 @@ function fetchOpenSkyTraffic() {
 
 // Create play/pause buttons for ATC audio
 const audioControls = document.createElement("div");
-audioControls.style.position = "fixed";
-audioControls.style.bottom = "20px";
-audioControls.style.left = "20px";
+audioControls.style.position = "absolute";
+audioControls.style.top = "85px";    // right below the clock
+audioControls.style.right = "10px";  // align to the right
 audioControls.style.backgroundColor = "rgba(0,0,0,0.7)";
 audioControls.style.color = "white";
-audioControls.style.padding = "6px 10px";
+audioControls.style.padding = "10px 14px";
 audioControls.style.borderRadius = "5px";
 audioControls.style.fontFamily = "sans-serif";
 audioControls.style.zIndex = "1000";
 
-const playButton = document.createElement("button");
-playButton.textContent = "Play ATC";
-playButton.onclick = () => {
-    if (audioElement.paused) {
-        audioElement.play().then(() => {
-            atcStatus.textContent = "Status: Playing";
-        }).catch(err => {
-            console.error("Audio play failed:", err);
-            atcStatus.textContent = "Status: Error";
-        });
+const atcPlayButton = document.createElement("button");
+atcPlayButton.textContent = "Play ATC";
+atcPlayButton.style.marginRight = "6px";
+atcPlayButton.onclick = () => {
+    if (!document.getElementById("atcFrame")) {
+        const atcFrame = document.createElement("iframe");
+        atcFrame.id = "atcFrame";
+        atcFrame.src = "https://www.liveatc.net/hlisten.php?mount=kfdk2&icao=kfdk";
+        atcFrame.style.position = "absolute";
+        atcFrame.style.top = "95px";
+        atcFrame.style.right = "10px";
+        atcFrame.style.width = "1px";
+        atcFrame.style.height = "1px";
+        atcFrame.style.opacity = "0";
+        atcFrame.style.border = "none";
+        document.body.appendChild(atcFrame);
+        statusText.textContent = "Status: Playing";
     }
 };
 
-const pauseButton = document.createElement("button");
-pauseButton.textContent = "Pause ATC";
-pauseButton.onclick = () => {
-    audioElement.pause();
-    atcStatus.textContent = "ATC Status: Paused";
+const atcPauseButton = document.createElement("button");
+atcPauseButton.textContent = "Pause ATC";
+atcPauseButton.onclick = () => {
+    const existing = document.getElementById("atcFrame");
+    if (existing) {
+        existing.remove();
+        statusText.textContent = "Status: Paused";
+    }
 };
-
-atcControlContainer.appendChild(playButton);
-atcControlContainer.appendChild(pauseButton);
 
 const statusText = document.createElement("span");
 statusText.id = "atcStatus";
 statusText.style.marginLeft = "10px";
 statusText.style.fontWeight = "bold";
 statusText.textContent = "Status: Paused";
+
+audioControls.appendChild(atcPlayButton);
+audioControls.appendChild(atcPauseButton);
 audioControls.appendChild(statusText);
-
 document.body.appendChild(audioControls);
-
-// Setup the audio stream remains unchanged
-const atcAudio = new Audio("https://d.liveatc.net/kfdk2");
-atcAudio.loop = true;
-atcAudio.volume = 0.6;
-
-playBtn.addEventListener("click", () => {
-    atcAudio.play().then(() => {
-      statusText.textContent = "Status: Playing";
-    }).catch(err => {
-      console.warn("Play failed:", err);
-    });
-});
-
-pauseBtn.addEventListener("click", () => {
-    atcAudio.pause();
-    statusText.textContent = "Status: Paused";
-});
-
-// If browser blocks autoplay, allow retry on click
-document.addEventListener("click", () => {
-  if (atcAudio.paused) {
-    atcAudio.play().catch(err => console.warn("ATC playback blocked:", err));
-  }
-});
