@@ -2,6 +2,9 @@
 
 const OPEN_SKY_API_URL = "https://opensky-network.org/api/states/all";
 
+let OPEN_SKY_USERNAME = "";
+let OPEN_SKY_PASSWORD = "";
+
 if (!localStorage.getItem("homeAirport")) {
     localStorage.setItem("homeAirport", "KHGR");
 }
@@ -295,6 +298,8 @@ let regionmap = new Map();
             DistanceUnits = settings.distanceunits;
             distanceunit = settings.distanceunit;
             currentZoom = settings.startupzoom;
+            const OPEN_SKY_USERNAME = settings.opensky?.username || "";
+            const OPEN_SKY_PASSWORD = settings.opensky?.password || "";
         }
         catch(err) {
             console.log(err);
@@ -1893,6 +1898,42 @@ setInterval(() => {
         }));
     }
 }, 5 * 60 * 1000); // every 5 minutes
+
+setInterval(() => {
+    const bounds = map.getView().calculateExtent(map.getSize());
+    const [minX, minY, maxX, maxY] = ol.proj.transformExtent(bounds, 'EPSG:3857', 'EPSG:4326');
+
+    const url = `https://opensky-network.org/api/states/all?lamin=${minY}&lomin=${minX}&lamax=${maxY}&lomax=${maxX}`;
+    const headers = new Headers();
+    headers.set('Authorization', 'Basic ' + btoa(`${OPEN_SKY_USERNAME}:${OPEN_SKY_PASSWORD}`));
+
+    fetch(url, { headers })
+        .then(res => res.json())
+        .then(data => {
+            if (!data || !data.states) return;
+            data.states.forEach(state => {
+                const [
+                    icao24, callsign, originCountry, timePosition, lastContact,
+                    longitude, latitude, baroAltitude, onGround, velocity,
+                    heading, verticalRate, sensors, geoAltitude, squawk,
+                    spi, positionSource
+                ] = state;
+
+                if (latitude != null && longitude != null) {
+                    const trafficData = {
+                        Icao_addr: icao24,
+                        Lat: latitude,
+                        Lng: longitude,
+                        Speed: velocity,
+                        Track: heading,
+                        AgeLastAlt: 0
+                    };
+                    addTrafficItem(trafficData);
+                }
+            });
+        })
+        .catch(err => console.error("OpenSky fetch error:", err));
+}, 15000);
 
 /**
  * Start the weather radar animation
@@ -3517,7 +3558,7 @@ function fetchOpenSkyTraffic() {
   }
   
   // Call every 15 seconds
-  setInterval(fetchOpenSkyTraffic, 15000);
+  setInterval(fetchOpenSkyTraffic, 30000);
   fetchOpenSkyTraffic();
 
 // Create play/pause buttons for ATC audio

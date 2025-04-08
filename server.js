@@ -209,10 +209,18 @@ try {
     });
     
     app.get("/getsettings", (req, res) => {
-        let rawdata = fs.readFileSync(`${__dirname}/settings.json`);
-        res.writeHead(200);
-        res.write(rawdata);
-        res.end();
+    let rawdata = fs.readFileSync(`${__dirname}/settings.json`);
+    let json = JSON.parse(rawdata);
+ 
+    // Add OpenSky credentials from environment
+    json.opensky = {
+        username: process.env.OPEN_SKY_USERNAME || "",
+        password: process.env.OPEN_SKY_PASSWORD || ""
+    };
+ 
+    res.writeHead(200);
+    res.write(JSON.stringify(json));
+    res.end();
     });
 
     app.get("/databaselist", (req, res) => {

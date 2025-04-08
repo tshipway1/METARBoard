@@ -4,3 +4,4 @@
 **/*.db
 **/*.mbtiles
 .DS_Store
+.env
