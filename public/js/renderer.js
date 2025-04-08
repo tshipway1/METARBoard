@@ -21,7 +21,7 @@ function centerOnHomeAirport() {
     if (apt) {
         const coords = apt.getGeometry().getCoordinates();
         map.getView().setCenter(coords);
-        map.getView().setZoom(settings.startupzoom || 10);
+        map.getView().setZoom(settings.startupzoom || 9);
         // Automatically check the METARs checkbox if it exists
         const metarsCheckbox = document.querySelector('input[type="checkbox"][title="Metars"]');
         if (metarsCheckbox) {
